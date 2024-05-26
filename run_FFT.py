@@ -119,7 +119,7 @@ def test(test_loader, model, criterion, device):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Single Frame ConvNet")
-    parser.add_argument("--dataset_dir", type=str, default="kth-data",
+    parser.add_argument("--dataset_dir", type=str, default="kth-data-fft",
                         help="directory to dataset under 'datasets' folder")
     parser.add_argument("--batch_size", type=int, default=16,
                         help="batch size for training (default: 16)")
