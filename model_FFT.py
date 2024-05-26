@@ -3,42 +3,57 @@ import torch.nn as nn
 import torch.nn.functional as F
 import cv2
 from tqdm import tqdm
+import numpy as np
 
 def hardwire_layer(input, device, verbose=False):
     """
-    Proprocess the given consecutive input (grayscaled) frames into 5 different styles. 
+    Proprocess the given consecutive input (grayscaled) frames into 2 different styles. 
     input : array of shape (N, frames, height, width)
     ex) TRECVID dataset : (N, 7, 60, 40),  KTH dataset : (N, 9, 80, 60)
     
-    ##################################### hardwired frames #####################################
-    # content: [[[gray frames], [grad-x frames], [grad-y frames], [opt-x frames], [opt-y frames]], ...]
-    # shape:   [[[---- f ----], [----- f -----], [----- f -----], [---- f-1 ---], [---- f-1 ---]], ...]
-    #           => total: 5f-2 frames
+    ##################################### FFT frames #####################################
+    # content: [[[FFT_Amplitude frames], [FFT_Phase frames]], ...]
+    # shape:   [[[---- f ----], [----- f -----]], ...]
+    #           => total: 2f frames
     ############################################################################################
     """
 
     """
-    cut_size: This has to be determined to extract some part of the 2D Fourier transformed data. (Odd)
+    cut_param: Proportion of cutting size for each direction (x, y).
 
     """
     assert len(input.shape) == 4 
     if verbose: print("Before hardwired layer:\t", input.shape)
     N, f, h, w = input.shape
     
-    hardwired = torch.zeros((N, 5*f-2, h, w)).to(device)
+    hardwired = torch.zeros((N, 2*f, h, w)).to(device)
     input = input.to(device)
 
     gray = input.clone()
-    fft_tensor = torch.fft.fftshift(torch.fft.fft2(gray, norm='ortho'))
+    
+    fft_abs = []
+    fft_phase = []
+    for i in range(N):
+        for j in range(f):
+            img = gray[i, j, :, :]
+            fft_tensor = torch.fft.fftshift(torch.fft.fft2(img, norm='ortho'))
 
-    cut_size = 81 # Odd
+            cut_param = 1
+            cut_size_h = round(h*cut_param)
+            cut_size_w = round(w*cut_param)
 
-    cut_temp = int((cut_size-1)/2)
+            cut_temp_h = int((cut_size_h-1)/2)
+            cut_temp_w = int((cut_size_w-1)/2)
 
-    fft_tensor_cut = fft_tensor[round(np.size(img,0)/2)-cut_temp:round(np.size(img,0)/2)+cut_temp+1, round(np.size(img,1)/2)-cut_temp:round(np.size(img,1)/2)+cut_temp+1]
+            fft_tensor_cut = fft_tensor[round(np.size(img,0)/2)-cut_temp_h:round(np.size(img,0)/2)+cut_temp_h+1, round(np.size(img,1)/2)-cut_temp_w:round(np.size(img,1)/2)+cut_temp_w+1]
 
-    fft_abs = fft_tensor_cut.abs
-    fft_phase = fft_tensor_cut.angle
+            fft_abs = fft_tensor_cut.abs
+            fft_phase = fft_tensor_cut.angle
+            
+            fft_abs.append(torch.tensor(fft_abs))
+            fft_phase.append(torch.tensor(fft_phase))
+    fft_abs = torch.stack(fft_abs, dim=0).reshape(N, f, h, w).to(device)
+    fft_phase = torch.stack(fft_phase, dim=0).reshape(N, f, h, w).to(device)
     
     hardwired = torch.cat([fft_abs, fft_phase], dim=1)
     hardwired = hardwired.unsqueeze(dim=1)
@@ -50,7 +65,7 @@ def hardwire_layer(input, device, verbose=False):
 class Original_Model(nn.Module):
     """
     3D-CNN model designed by the '3D-CNN for HAR' paper. 
-    Input Shape: (N, C_in=1, Dimension=5f-2, Height=h, Width=w)
+    Input Shape: (N, C_in=1, Dimension=2f, Height=h, Width=w)
     """
     def __init__(self, verbose=False, mode='KTH'):
         """You need to give the dataset type as 'mode', which is one of 'KTH' or 'TRECVID'."""
@@ -58,14 +73,14 @@ class Original_Model(nn.Module):
         self.verbose = verbose
         self.mode = mode
         if self.mode == 'KTH':
-            self.f = 9
+            self.f = 9 # num. of frames
         elif self.mode == 'TRECVID':
             self.f = 7
         else:
             print("This mode is not available. Choose one of KTH or TRECVID.")
             return 
-        self.dim = self.f * 5 - 2
-        self.dim1, self.dim2 = (self.dim-10)*2, (self.dim-20)*6
+        self.dim = self.f * 2
+        self.dim1, self.dim2 = (self.dim-4)*2, (self.dim-8)*6
 
         if self.mode == 'KTH':
             self.conv1 = nn.Conv3d(in_channels=1, out_channels=2, kernel_size=(3,9,7), stride=1)
@@ -88,13 +103,11 @@ class Original_Model(nn.Module):
         if self.verbose: print("연산 전:\t", x.size())
         assert x.size()[1] == 1
 
-        (x1, x2, x3, x4, x5) = torch.split(x, [self.f-1,self.f-1,self.f,self.f,self.f], dim=2)
+        (x1, x2) = torch.split(x, [self.f,self.f], dim=2)
         x1 = F.relu(self.conv1(x1))
         x2 = F.relu(self.conv1(x2))
-        x3 = F.relu(self.conv1(x3))
-        x4 = F.relu(self.conv1(x4))
-        x5 = F.relu(self.conv1(x5))
-        x = torch.cat([x1, x2, x3, x4, x5], dim=2)
+
+        x = torch.cat([x1, x2], dim=2)
         if self.verbose: print("conv1 연산 후:\t", x.shape)
 
         x = x.view(x.shape[0], -1, x.shape[3], x.shape[4])
@@ -102,13 +115,11 @@ class Original_Model(nn.Module):
         x = x.view(-1, 2, self.dim1//2, x.shape[2], x.shape[3])
         if self.verbose: print("pool1 연산 후:\t", x.shape)
 
-        (x1, x2, x3, x4, x5) = torch.split(x, [self.f-3,self.f-3,self.f-2,self.f-2,self.f-2], dim=2)
+        (x1, x2) = torch.split(x, [self.f-2,self.f-2], dim=2)
         x1 = F.relu(self.conv2(x1))
         x2 = F.relu(self.conv2(x2))
-        x3 = F.relu(self.conv2(x3))
-        x4 = F.relu(self.conv2(x4))
-        x5 = F.relu(self.conv2(x5))
-        x = torch.cat([x1, x2, x3, x4, x5], dim=2)
+
+        x = torch.cat([x1, x2], dim=2)
         if self.verbose: print("conv2 연산 후:\t",x.shape)
 
         x = x.view(x.shape[0], -1, x.shape[3], x.shape[4])
