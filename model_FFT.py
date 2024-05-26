@@ -35,25 +35,29 @@ def hardwire_layer(input, device, verbose=False):
     fft_phase = []
     for i in range(N):
         for j in range(f):
-            img = gray[i, j, :, :]
+            img = gray[i][j]
             fft_tensor = torch.fft.fftshift(torch.fft.fft2(img, norm='ortho'))
 
             cut_param = 1
             cut_size_h = round(h*cut_param)
             cut_size_w = round(w*cut_param)
 
-            cut_temp_h = int((cut_size_h-1)/2)
-            cut_temp_w = int((cut_size_w-1)/2)
+            cut_temp_h = int(round((cut_size_h-1)/2))
+            cut_temp_w = int(round((cut_size_w-1)/2))
 
             fft_tensor_cut = fft_tensor[round(np.size(img,0)/2)-cut_temp_h:round(np.size(img,0)/2)+cut_temp_h+1, round(np.size(img,1)/2)-cut_temp_w:round(np.size(img,1)/2)+cut_temp_w+1]
 
-            fft_abs = fft_tensor_cut.abs
-            fft_phase = fft_tensor_cut.angle
+            fft_abs_temp = torch.abs(fft_tensor_cut) # h*w
+            fft_phase_temp = torch.angle(fft_tensor_cut) # h*w
             
-            fft_abs.append(torch.tensor(fft_abs))
-            fft_phase.append(torch.tensor(fft_phase))
-    fft_abs = torch.stack(fft_abs, dim=0).reshape(N, f, h, w).to(device)
-    fft_phase = torch.stack(fft_phase, dim=0).reshape(N, f, h, w).to(device)
+            fft_abs.append(fft_abs_temp) # (N*f)*h*w
+            fft_phase.append(fft_phase_temp) # (N*f)*h*w
+    
+    fft_abs = torch.cat(fft_abs, dim=0).reshape(shape=(N*f, h, w)).to(device)
+    fft_phase = torch.cat(fft_phase, dim=0).reshape(shape=(N*f, h, w)).to(device)
+    
+    fft_abs = fft_abs.reshape(shape=(N, f, h, w)).to(device)
+    fft_phase = fft_phase.reshape(shape=(N, f, h, w)).to(device)
     
     hardwired = torch.cat([fft_abs, fft_phase], dim=1)
     hardwired = hardwired.unsqueeze(dim=1)
