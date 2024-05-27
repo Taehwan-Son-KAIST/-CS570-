@@ -119,15 +119,15 @@ def test(test_loader, model, criterion, device):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Single Frame ConvNet")
-    parser.add_argument("--dataset_dir", type=str, default="kth-data-fft",
+    parser.add_argument("--dataset_dir", type=str, default="kth-data-fft0.5",
                         help="directory to dataset under 'datasets' folder")
     parser.add_argument("--batch_size", type=int, default=16,
                         help="batch size for training (default: 16)")
-    parser.add_argument("--num_epochs", type=int, default=30,
+    parser.add_argument("--num_epochs", type=int, default=50,
                         help="number of epochs to train (default: 30)")
     # parser.add_argument("--start_epoch", type=int, default=1,
     #                     help="start index of epoch (default: 1)")
-    parser.add_argument("--lr", type=float, default=1e-5,
+    parser.add_argument("--lr", type=float, default=3e-4,
                         help="learning rate for training (default: 1e-5)")
     parser.add_argument("--optim", type=str, default="adam",
                         help="optimizer for training (choose one of 'adam' or 'sgd')")
