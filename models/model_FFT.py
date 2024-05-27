@@ -26,7 +26,17 @@ def hardwire_layer(input, device, verbose=False):
     if verbose: print("Before hardwired layer:\t", input.shape)
     N, f, h, w = input.shape
     
-    hardwired = torch.zeros((N, 2*f, h, w)).to(device)
+    cut_param = 0.5
+    cut_size_h = round(h*cut_param+1e-8)
+    cut_size_w = round(w*cut_param+1e-8)
+    
+    if cut_size_h % 2 == 0:
+        cut_size_h = cut_size_h + 1
+        
+    if cut_size_w % 2 == 0:
+        cut_size_w = cut_size_w + 1
+    
+    hardwired = torch.zeros((N, 2*f, cut_size_h, cut_size_w)).to(device)
     input = input.to(device)
 
     gray = input.clone()
@@ -38,14 +48,10 @@ def hardwire_layer(input, device, verbose=False):
             img = gray[i][j]
             fft_tensor = torch.fft.fftshift(torch.fft.fft2(img, norm='ortho'))
 
-            cut_param = 1
-            cut_size_h = round(h*cut_param)
-            cut_size_w = round(w*cut_param)
+            cut_temp_h = round((cut_size_h-1)/2+1e-8)
+            cut_temp_w = round((cut_size_w-1)/2+1e-8)
 
-            cut_temp_h = int(round((cut_size_h-1)/2))
-            cut_temp_w = int(round((cut_size_w-1)/2))
-
-            fft_tensor_cut = fft_tensor[round(np.size(img,0)/2)-cut_temp_h:round(np.size(img,0)/2)+cut_temp_h+1, round(np.size(img,1)/2)-cut_temp_w:round(np.size(img,1)/2)+cut_temp_w+1]
+            fft_tensor_cut = fft_tensor[round(np.size(img,0)/2+1e-8)-cut_temp_h:round(np.size(img,0)/2+1e-8)+cut_temp_h+1, round(np.size(img,1)/2+1e-8)-cut_temp_w:round(np.size(img,1)/2+1e-8)+cut_temp_w+1]
 
             fft_abs_temp = torch.abs(fft_tensor_cut) # h*w
             fft_phase_temp = torch.angle(fft_tensor_cut) # h*w
@@ -53,11 +59,11 @@ def hardwire_layer(input, device, verbose=False):
             fft_abs.append(fft_abs_temp) # (N*f)*h*w
             fft_phase.append(fft_phase_temp) # (N*f)*h*w
     
-    fft_abs = torch.cat(fft_abs, dim=0).reshape(shape=(N*f, h, w)).to(device)
-    fft_phase = torch.cat(fft_phase, dim=0).reshape(shape=(N*f, h, w)).to(device)
+    fft_abs = torch.cat(fft_abs, dim=0).reshape(shape=(N*f, cut_size_h, cut_size_w)).to(device)
+    fft_phase = torch.cat(fft_phase, dim=0).reshape(shape=(N*f, cut_size_h, cut_size_w)).to(device)
     
-    fft_abs = fft_abs.reshape(shape=(N, f, h, w)).to(device)
-    fft_phase = fft_phase.reshape(shape=(N, f, h, w)).to(device)
+    fft_abs = fft_abs.reshape(shape=(N, f, cut_size_h, cut_size_w)).to(device)
+    fft_phase = fft_phase.reshape(shape=(N, f, cut_size_h, cut_size_w)).to(device)
     
     hardwired = torch.cat([fft_abs, fft_phase], dim=1)
     hardwired = hardwired.unsqueeze(dim=1)
@@ -87,11 +93,11 @@ class Original_Model(nn.Module):
         self.dim1, self.dim2 = (self.dim-4)*2, (self.dim-8)*6
 
         if self.mode == 'KTH':
-            self.conv1 = nn.Conv3d(in_channels=1, out_channels=2, kernel_size=(3,9,7), stride=1)
-            self.conv2 = nn.Conv3d(in_channels=2, out_channels=6, kernel_size=(3,7,7), stride=1)
-            self.pool1 = nn.MaxPool2d(3)
+            self.conv1 = nn.Conv3d(in_channels=1, out_channels=2, kernel_size=(3,10,8), stride=1)
+            self.conv2 = nn.Conv3d(in_channels=2, out_channels=6, kernel_size=(3,5,4), stride=1)
+            self.pool1 = nn.MaxPool2d(2)
             self.pool2 = nn.MaxPool2d(3)
-            self.conv3 = nn.Conv2d(in_channels=self.dim2, out_channels=128, kernel_size=(6,4), stride=1)
+            self.conv3 = nn.Conv2d(in_channels=self.dim2, out_channels=128, kernel_size=(4,3), stride=1)
             self.fc1 = nn.Linear(128, 6, bias=False)
 
         elif self.mode == 'TRECVID':
