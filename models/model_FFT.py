@@ -35,14 +35,20 @@ def hardwire_layer(input, device, verbose=False):
         
     if cut_size_w % 2 == 0:
         cut_size_w = cut_size_w + 1
-    
+        
+    if cut_size_h > h:
+        cut_size_h = h
+        
+    if cut_size_w > w:
+        cut_size_w = w
+
     hardwired = torch.zeros((N, 2*f, cut_size_h, cut_size_w)).to(device)
     input = input.to(device)
 
     gray = input.clone()
-    
-    fft_abs = []
-    fft_phase = []
+
+    fft_xy_abs = torch.zeros((N, f, cut_size_h, cut_size_w))
+    fft_xy_phase = torch.zeros((N, f, cut_size_h, cut_size_w))
     for i in range(N):
         for j in range(f):
             img = gray[i][j]
@@ -51,21 +57,19 @@ def hardwire_layer(input, device, verbose=False):
             cut_temp_h = round((cut_size_h-1)/2+1e-8)
             cut_temp_w = round((cut_size_w-1)/2+1e-8)
 
-            fft_tensor_cut = fft_tensor[round(np.size(img,0)/2+1e-8)-cut_temp_h:round(np.size(img,0)/2+1e-8)+cut_temp_h+1, round(np.size(img,1)/2+1e-8)-cut_temp_w:round(np.size(img,1)/2+1e-8)+cut_temp_w+1]
+            fft_xy_tensor_cut = fft_tensor[round(np.size(img,0)/2+1e-8)-cut_temp_h:round(np.size(img,0)/2+1e-8)+cut_temp_h+1, round(np.size(img,1)/2+1e-8)-cut_temp_w:round(np.size(img,1)/2+1e-8)+cut_temp_w+1]
 
-            fft_abs_temp = torch.abs(fft_tensor_cut) # h*w
-            fft_phase_temp = torch.angle(fft_tensor_cut) # h*w
+            fft_xy_abs_temp = torch.abs(fft_xy_tensor_cut) # h*w
+            fft_xy_phase_temp = torch.angle(fft_xy_tensor_cut) # h*w
             
-            fft_abs.append(fft_abs_temp) # (N*f)*h*w
-            fft_phase.append(fft_phase_temp) # (N*f)*h*w
+            fft_xy_abs[i,j,:,:] = fft_xy_abs_temp
+            fft_xy_phase[i,j,:,:] = fft_xy_phase_temp # (N*h)*f*w
+            
     
-    fft_abs = torch.cat(fft_abs, dim=0).reshape(shape=(N*f, cut_size_h, cut_size_w)).to(device)
-    fft_phase = torch.cat(fft_phase, dim=0).reshape(shape=(N*f, cut_size_h, cut_size_w)).to(device)
+    fft_xy_abs = fft_xy_abs.to(device)
+    fft_xy_phase = fft_xy_phase.to(device)
     
-    fft_abs = fft_abs.reshape(shape=(N, f, cut_size_h, cut_size_w)).to(device)
-    fft_phase = fft_phase.reshape(shape=(N, f, cut_size_h, cut_size_w)).to(device)
-    
-    hardwired = torch.cat([fft_abs, fft_phase], dim=1)
+    hardwired = torch.cat([fft_xy_abs, fft_xy_phase], dim=1)
     hardwired = hardwired.unsqueeze(dim=1)
     if verbose: print("After hardwired layer :\t", hardwired.shape)
     return hardwired
